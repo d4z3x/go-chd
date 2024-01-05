@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -15,15 +14,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/bodgit/sevenzip"
 
 	"log/slog"
 
-	"github.com/creack/pty"
 	"github.com/schollz/progressbar/v3"
-	"golang.org/x/term"
 )
 
 //https://go.dev/play/p/nE3HLTvMu3v
@@ -251,60 +247,6 @@ func getRatio(text string) (float32, float32) {
 	complete, _ := strconv.ParseFloat(result[1], 32)
 	ratio, _ := strconv.ParseFloat(result[2], 32)
 	return float32(complete), float32(ratio)
-}
-
-func runCmdX() error {
-	// Create arbitrary command.
-	commands := []string{
-		"chdman",
-		"createcd",
-		"-np", strconv.Itoa(runtime.NumCPU() - 1),
-		"-f", "-i", "NHL All-Star Hockey 98 (USA)/NHL All-Star Hockey 98 (USA).cue",
-		"-o", filepath.Join("..", "t.chd"),
-	}
-	//Compressing, 86.9% complete... (ratio=25.8%)
-	// cmdCtx, cmdDone := context.WithCancel(context.Background())
-
-	c := exec.Command(commands[0], commands[1:]...)
-
-	// c := exec.Command("bash")
-
-	// Start the command with a pty.
-	ptmx, err := pty.Start(c)
-	if err != nil {
-		return err
-	}
-	// Make sure to close the pty at the end.
-	defer func() { _ = ptmx.Close() }() // Best effort.
-
-	// Handle pty size.
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGWINCH)
-	go func() {
-		for range ch {
-			if err := pty.InheritSize(os.Stdin, ptmx); err != nil {
-				fmt.Printf("error resizing pty: %s", err)
-			}
-		}
-	}()
-	ch <- syscall.SIGWINCH                        // Initial resize.
-	defer func() { signal.Stop(ch); close(ch) }() // Cleanup signals when done.
-
-	// Set stdin in raw mode.
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		panic(err)
-	}
-	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }() // Best effort.
-
-	// Copy stdin to the pty and the pty to stdout.
-	// NOTE: The goroutine will keep reading until the next keystroke before returning.
-	go func() {
-		_, _ = io.Copy(ptmx, os.Stdin)
-	}()
-	_, _ = io.Copy(os.Stdout, ptmx)
-
-	return nil
 }
 
 func main() {
